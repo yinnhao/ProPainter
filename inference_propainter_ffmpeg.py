@@ -11,6 +11,8 @@ from tqdm import tqdm
 import torch
 import torchvision
 
+from ffpipe.ffpipe import video_infer
+
 from model.modules.flow_comp_raft import RAFT_bi
 from model.recurrent_flow_completion import RecurrentFlowCompleteNet
 from model.propainter import InpaintGenerator
@@ -363,6 +365,17 @@ def process_video_frames(frames, frames_inp, masks_dilated, flow_masks, model, f
                 
     return comp_frames
 
+class video_infer_propainter(video_infer):
+    def __init__(self, file_name, save_name, encode_params, model=None, scale=1, in_pix_fmt="rgb24", out_pix_fmt="rgb24", **decode_param_dict) -> None:
+        super().__init__(file_name, save_name, encode_params, model, scale, in_pix_fmt, out_pix_fmt, **decode_param_dict)
+
+    def forward(self, batch):
+        frames_inp = batch
+        frames = to_tensors()(frames_inp).unsqueeze(0) * 2 - 1  
+        
+        
+    
+
 
 if __name__ == '__main__':
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -483,6 +496,7 @@ if __name__ == '__main__':
     model.eval()
 
     
+
     ##############################################
     # ProPainter inference
     ##############################################
