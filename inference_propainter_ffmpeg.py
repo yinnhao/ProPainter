@@ -24,6 +24,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 pretrain_model_url = 'https://github.com/sczhou/ProPainter/releases/download/v0.1.0/'
+N_in = 10
 
 def imwrite(img, file_path, params=None, auto_mkdir=True):
     if auto_mkdir:
@@ -367,14 +368,79 @@ def process_video_frames(frames, frames_inp, masks_dilated, flow_masks, model, f
 
 class video_infer_propainter(video_infer):
     def __init__(self, file_name, save_name, encode_params, model=None, scale=1, in_pix_fmt="rgb24", out_pix_fmt="rgb24", **decode_param_dict) -> None:
-        super().__init__(file_name, save_name, encode_params, model, scale, in_pix_fmt, out_pix_fmt, **decode_param_dict)
+        # decode_param_dict = param_dict.get('decode_param_dict', None)
+        super().__init__(file_name, save_name, encode_params, model, scale, in_pix_fmt, out_pix_fmt)
+        
+    
+        # 获取设备
+        self.device = get_device()
+        
+        # 加载RAFT模型
+        # raft_ckpt_path = load_file_from_url(url=os.path.join(pretrain_model_url, 'raft-things.pth'), 
+        #                                     model_dir='weights', progress=True, file_name=None)
+        # self.fix_raft = RAFT_bi(raft_ckpt_path, self.device)
+        self.fix_raft = decode_param_dict.get('fix_raft', None)
+        
+        # 加载光流补全模型
+        # flow_complete_ckpt_path = load_file_from_url(url=os.path.join(pretrain_model_url, 'recurrent_flow_completion.pth'), 
+        #                                              model_dir='weights', progress=True, file_name=None)
+        # self.fix_flow_complete = RecurrentFlowCompleteNet(flow_complete_ckpt_path)
+        # for p in self.fix_flow_complete.parameters():
+        #     p.requires_grad = False
+        # self.fix_flow_complete.to(self.device)
+        # self.fix_flow_complete.eval()
+        self.fix_flow_complete = decode_param_dict.get('fix_flow_complete', None)
+        
+        # 加载ProPainter模型
+        # propainter_ckpt_path = load_file_from_url(url=os.path.join(pretrain_model_url, 'ProPainter.pth'), 
+        #                                           model_dir='weights', progress=True, file_name=None)
+        # self.model = InpaintGenerator(model_path=propainter_ckpt_path).to(self.device)
+        # self.model.eval()
+        self.model = model
+        
+        # 其他参数
+        self.use_half = decode_param_dict.get('use_half', False)
+        self.args = decode_param_dict.get('args', None)
+        self.h = decode_param_dict.get('height', 432)
+        self.w = decode_param_dict.get('width', 240)
+        self.out_size = decode_param_dict.get('out_size', (self.w, self.h))
+
+        self.flow_masks = decode_param_dict.get('flow_masks', None)
+        self.masks_dilated = decode_param_dict.get('masks_dilated', None)
 
     def forward(self, batch):
         frames_inp = batch
         frames = to_tensors()(frames_inp).unsqueeze(0) * 2 - 1  
         
+        # 获取设备
+        device = get_device()
         
-    
+        # 将帧和掩码移动到设备
+        frames = frames.to(device)
+        flow_masks = to_tensors()(self.flow_masks).unsqueeze(0).to(device)
+        masks_dilated = to_tensors()(self.masks_dilated).unsqueeze(0).to(device)
+        
+        # 调用process_video_frames进行推理
+        comp_frames = process_video_frames(
+            frames=frames,
+            frames_inp=frames_inp, 
+            masks_dilated=masks_dilated,
+            flow_masks=flow_masks,
+            model=self.model,
+            fix_raft=self.fix_raft,
+            fix_flow_complete=self.fix_flow_complete,
+            args=self.args,
+            device=device,
+            use_half=self.use_half,
+            h=self.h,
+            w=self.w,
+            out_size=self.out_size
+        )
+        return comp_frames
+        
+        # 保存或返回推理结果
+        # 这里可以选择保存到文件或返回结果
+        # 例如：return comp_frames
 
 
 if __name__ == '__main__':
@@ -495,33 +561,41 @@ if __name__ == '__main__':
     model = InpaintGenerator(model_path=ckpt_path).to(device)
     model.eval()
 
-    
+    file_name = args.video
+    save_name = args.output
+    encode_params = ("libx264", "x264opts", "qp=12:bframes=3")
+    video_infer = video_infer_propainter(file_name, save_name, encode_params, model=model, scale=1, in_pix_fmt="rgb24", 
+                                         out_pix_fmt="rgb24", fix_raft=fix_raft, fix_flow_complete=fix_flow_complete, 
+                                         flow_masks=flow_masks, masks_dilated=masks_dilated, args=args, use_half=use_half, 
+                                         h=h, w=w, out_size=out_size)
+    video_infer.infer_multi_frames_propainter(N_in)
 
     ##############################################
     # ProPainter inference
     ##############################################
-    comp_frames = process_video_frames(
-        frames=frames,
-        frames_inp=frames_inp, 
-        masks_dilated=masks_dilated,
-        flow_masks=flow_masks,
-        model=model,
-        fix_raft=fix_raft,
-        fix_flow_complete=fix_flow_complete,
-        args=args,
-        device=device,
-        use_half=use_half,
-        h=h,
-        w=w,
-        out_size=out_size
-    )
+
+    # comp_frames = process_video_frames(
+    #     frames=frames,
+    #     frames_inp=frames_inp, 
+    #     masks_dilated=masks_dilated,
+    #     flow_masks=flow_masks,
+    #     model=model,
+    #     fix_raft=fix_raft,
+    #     fix_flow_complete=fix_flow_complete,
+    #     args=args,
+    #     device=device,
+    #     use_half=use_half,
+    #     h=h,
+    #     w=w,
+    #     out_size=out_size
+    # )
     
     # 保存视频
-    masked_frame_for_save = [cv2.resize(f, out_size) for f in masked_frame_for_save]
-    comp_frames = [cv2.resize(f, out_size) for f in comp_frames]
-    imageio.mimwrite(os.path.join(save_root, 'masked_in.mp4'), masked_frame_for_save, fps=fps, quality=7)
-    imageio.mimwrite(os.path.join(save_root, 'inpaint_out.mp4'), comp_frames, fps=fps, quality=7)
+    # masked_frame_for_save = [cv2.resize(f, out_size) for f in masked_frame_for_save]
+    # comp_frames = [cv2.resize(f, out_size) for f in comp_frames]
+    # imageio.mimwrite(os.path.join(save_root, 'masked_in.mp4'), masked_frame_for_save, fps=fps, quality=7)
+    # imageio.mimwrite(os.path.join(save_root, 'inpaint_out.mp4'), comp_frames, fps=fps, quality=7)
     
-    print(f'\nAll results are saved in {save_root}')
+    # print(f'\nAll results are saved in {save_root}')
     
     torch.cuda.empty_cache()
