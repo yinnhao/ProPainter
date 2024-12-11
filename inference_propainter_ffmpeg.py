@@ -24,7 +24,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 pretrain_model_url = 'https://github.com/sczhou/ProPainter/releases/download/v0.1.0/'
-N_in = 10
+N_in = 15
 
 def imwrite(img, file_path, params=None, auto_mkdir=True):
     if auto_mkdir:
@@ -401,16 +401,31 @@ class video_infer_propainter(video_infer):
         # 其他参数
         self.use_half = decode_param_dict.get('use_half', False)
         self.args = decode_param_dict.get('args', None)
-        self.h = decode_param_dict.get('height', 432)
-        self.w = decode_param_dict.get('width', 240)
+        self.h = decode_param_dict.get('h', 432)
+        self.w = decode_param_dict.get('w', 240)
         self.out_size = decode_param_dict.get('out_size', (self.w, self.h))
 
-        self.flow_masks = decode_param_dict.get('flow_masks', None)
-        self.masks_dilated = decode_param_dict.get('masks_dilated', None)
+        # self.flow_masks = decode_param_dict.get('flow_masks', None)
+        # self.masks_dilated = decode_param_dict.get('masks_dilated', None)
+        
+        self.mask = decode_param_dict.get('mask', None)
+        self.mask_dilation = decode_param_dict.get('mask_dilation', 4)
+        self.frames_len = decode_param_dict.get('frames_len', None)
+        
+        self.flow_masks, self.masks_dilated = read_mask(self.mask, self.frames_len, self.out_size, 
+                                              flow_mask_dilates=self.mask_dilation,
+                                              mask_dilates=self.mask_dilation)
+        
+        flow_mask = self.flow_masks[0]
+        
+        # breakpoint()
 
     def forward(self, batch):
+        
         frames_inp = batch
-        frames = to_tensors()(frames_inp).unsqueeze(0) * 2 - 1  
+        
+        frames =  [Image.fromarray(numpy_array.astype('uint8')) for numpy_array in frames_inp]
+        frames = to_tensors()(frames).unsqueeze(0) * 2 - 1  
         
         # 获取设备
         device = get_device()
@@ -449,7 +464,7 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '-i', '--video', type=str, default='inputs/video_completion/video_0_2s.mp4', help='Path of the input video or image folder.')
+        '-i', '--video', type=str, default='inputs/video_completion/video_0_2s_240x432.mp4', help='Path of the input video or image folder.')
     parser.add_argument(
         '-m', '--mask', type=str, default='inputs/video_completion/logo_mask_2.png', help='Path of the mask(s) or mask folder.')
     parser.add_argument(
@@ -490,51 +505,51 @@ if __name__ == '__main__':
     if device == torch.device('cpu'):
         use_half = False
 
-    frames, fps, size, video_name = read_frame_from_videos(args.video)
-    frames_0 = frames[0]
-    if not args.width == -1 and not args.height == -1:
-        size = (args.width, args.height)
-    if not args.resize_ratio == 1.0:
-        size = (int(args.resize_ratio * size[0]), int(args.resize_ratio * size[1]))
+    # frames, fps, size, video_name = read_frame_from_videos(args.video)
+    # frames_0 = frames[0]
+    # if not args.width == -1 and not args.height == -1:
+    #     size = (args.width, args.height)
+    # if not args.resize_ratio == 1.0:
+    #     size = (int(args.resize_ratio * size[0]), int(args.resize_ratio * size[1]))
 
-    frames, size, out_size = resize_frames(frames, size)
+    # frames, size, out_size = resize_frames(frames, size)
     
-    fps = args.save_fps if fps is None else fps
-    save_root = os.path.join(args.output, video_name)
-    if not os.path.exists(save_root):
-        os.makedirs(save_root, exist_ok=True)
+    # fps = args.save_fps if fps is None else fps
+    # save_root = os.path.join(args.output, video_name)
+    # if not os.path.exists(save_root):
+    #     os.makedirs(save_root, exist_ok=True)
 
-    if args.mode == 'video_inpainting':
-        frames_len = len(frames)
-        flow_masks, masks_dilated = read_mask(args.mask, frames_len, size, 
-                                              flow_mask_dilates=args.mask_dilation,
-                                              mask_dilates=args.mask_dilation)
-        w, h = size
-    elif args.mode == 'video_outpainting':
-        assert args.scale_h is not None and args.scale_w is not None, 'Please provide a outpainting scale (s_h, s_w).'
-        frames, flow_masks, masks_dilated, size = extrapolation(frames, (args.scale_h, args.scale_w))
-        w, h = size
-    else:
-        raise NotImplementedError
+    # if args.mode == 'video_inpainting':
+    #     frames_len = len(frames)
+    #     flow_masks, masks_dilated = read_mask(args.mask, frames_len, size, 
+    #                                           flow_mask_dilates=args.mask_dilation,
+    #                                           mask_dilates=args.mask_dilation)
+    #     w, h = size
+    # elif args.mode == 'video_outpainting':
+    #     assert args.scale_h is not None and args.scale_w is not None, 'Please provide a outpainting scale (s_h, s_w).'
+    #     frames, flow_masks, masks_dilated, size = extrapolation(frames, (args.scale_h, args.scale_w))
+    #     w, h = size
+    # else:
+    #     raise NotImplementedError
     
     # for saving the masked frames or video
-    masked_frame_for_save = []
-    for i in range(len(frames)):
-        mask_ = np.expand_dims(np.array(masks_dilated[i]),2).repeat(3, axis=2)/255.
-        img = np.array(frames[i])
-        green = np.zeros([h, w, 3]) 
-        green[:,:,1] = 255
-        alpha = 0.6
-        # alpha = 1.0
-        fuse_img = (1-alpha)*img + alpha*green
-        fuse_img = mask_ * fuse_img + (1-mask_)*img
-        masked_frame_for_save.append(fuse_img.astype(np.uint8))
-    masked_frame_for_save_0 = masked_frame_for_save[0]
-    frames_inp = [np.array(f).astype(np.uint8) for f in frames]
-    frames = to_tensors()(frames).unsqueeze(0) * 2 - 1    
-    flow_masks = to_tensors()(flow_masks).unsqueeze(0)
-    masks_dilated = to_tensors()(masks_dilated).unsqueeze(0)
-    frames, flow_masks, masks_dilated = frames.to(device), flow_masks.to(device), masks_dilated.to(device)
+    # masked_frame_for_save = []
+    # for i in range(len(frames)):
+    #     mask_ = np.expand_dims(np.array(masks_dilated[i]),2).repeat(3, axis=2)/255.
+    #     img = np.array(frames[i])
+    #     green = np.zeros([h, w, 3]) 
+    #     green[:,:,1] = 255
+    #     alpha = 0.6
+    #     # alpha = 1.0
+    #     fuse_img = (1-alpha)*img + alpha*green
+    #     fuse_img = mask_ * fuse_img + (1-mask_)*img
+    #     masked_frame_for_save.append(fuse_img.astype(np.uint8))
+    # masked_frame_for_save_0 = masked_frame_for_save[0]
+    # frames_inp = [np.array(f).astype(np.uint8) for f in frames]
+    # frames = to_tensors()(frames).unsqueeze(0) * 2 - 1    
+    # flow_masks = to_tensors()(flow_masks).unsqueeze(0)
+    # masks_dilated = to_tensors()(masks_dilated).unsqueeze(0)
+    # frames, flow_masks, masks_dilated = frames.to(device), flow_masks.to(device), masks_dilated.to(device)
 
     
     ##############################################
@@ -562,12 +577,13 @@ if __name__ == '__main__':
     model.eval()
 
     file_name = args.video
-    save_name = args.output
-    encode_params = ("libx264", "x264opts", "qp=12:bframes=3")
+    base_name = os.path.basename(file_name).split('.')[0]
+    save_name = "results/{}_inpaint_n_{}.mp4".format(base_name, str(N_in))
+    encode_params = ("libx264", "x264opts", "qp=24:bframes=3")
+    out_size = (args.width, args.height)
     video_infer = video_infer_propainter(file_name, save_name, encode_params, model=model, scale=1, in_pix_fmt="rgb24", 
-                                         out_pix_fmt="rgb24", fix_raft=fix_raft, fix_flow_complete=fix_flow_complete, 
-                                         flow_masks=flow_masks, masks_dilated=masks_dilated, args=args, use_half=use_half, 
-                                         h=h, w=w, out_size=out_size)
+                                         out_pix_fmt="rgb24", fix_raft=fix_raft, fix_flow_complete=fix_flow_complete, args=args, use_half=use_half, 
+                                         h=args.height, w=args.width, out_size=out_size, frames_len=N_in, mask_dilation=args.mask_dilation, mask=args.mask)
     video_infer.infer_multi_frames_propainter(N_in)
 
     ##############################################

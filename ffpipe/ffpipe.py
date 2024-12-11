@@ -167,7 +167,7 @@ class video_infer:
         # batch.append(frame_in)
         # for i in range(N_in//2):
         #     batch.append(frame_in)
-        # frame_index = 1
+        frame_index = 1
         batch = []
         while True:
             frame_index = frame_index + 1
