@@ -7,7 +7,7 @@ import numpy as np
 import scipy.ndimage
 from PIL import Image
 from tqdm import tqdm
-
+import json
 import torch
 import torchvision
 
@@ -376,7 +376,7 @@ def generate_dynamic_mask(mark_info, frame_size, current_frame_indices):
         current_frame_indices: 当前批次的帧序号列表
     
     返回:
-        masks: 生成���mask列表
+        masks: 生成mask列表
     """
     w, h = frame_size
     masks = []
@@ -507,14 +507,13 @@ class video_infer_propainter(video_infer):
 
 
 if __name__ == '__main__':
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = get_device()
     
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '-i', '--video', type=str, default='inputs/video_completion/video_0_2s_240x432.mp4', help='Path of the input video or image folder.')
+        '-i', '--video', type=str, default='inputs/video_completion/video_0_2s_240x432.mp4')
     parser.add_argument(
-        '-m', '--mask', type=str, default='inputs/video_completion/logo_mask_2.png', help='Path of the mask(s) or mask folder.')
+        '-m', '--mark_json', type=str, help='Path to the JSON file containing mark information')
     parser.add_argument(
         '-o', '--output', type=str, default='results', help='Output folder. Default: results')
     parser.add_argument(
@@ -547,62 +546,17 @@ if __name__ == '__main__':
         '--fp16', action='store_true', help='Use fp16 (half precision) during inference. Default: fp32 (single precision).')
 
     args = parser.parse_args()
+    
+    # 读取标记信息JSON文件
+    with open(args.mark_json, 'r') as f:
+        mark_info = json.load(f)
 
-    # Use fp16 precision during inference to reduce running memory cost
+    # 设置模型等其他组件
     use_half = True if args.fp16 else False 
     if device == torch.device('cpu'):
         use_half = False
 
-    # frames, fps, size, video_name = read_frame_from_videos(args.video)
-    # frames_0 = frames[0]
-    # if not args.width == -1 and not args.height == -1:
-    #     size = (args.width, args.height)
-    # if not args.resize_ratio == 1.0:
-    #     size = (int(args.resize_ratio * size[0]), int(args.resize_ratio * size[1]))
-
-    # frames, size, out_size = resize_frames(frames, size)
-    
-    # fps = args.save_fps if fps is None else fps
-    # save_root = os.path.join(args.output, video_name)
-    # if not os.path.exists(save_root):
-    #     os.makedirs(save_root, exist_ok=True)
-
-    # if args.mode == 'video_inpainting':
-    #     frames_len = len(frames)
-    #     flow_masks, masks_dilated = read_mask(args.mask, frames_len, size, 
-    #                                           flow_mask_dilates=args.mask_dilation,
-    #                                           mask_dilates=args.mask_dilation)
-    #     w, h = size
-    # elif args.mode == 'video_outpainting':
-    #     assert args.scale_h is not None and args.scale_w is not None, 'Please provide a outpainting scale (s_h, s_w).'
-    #     frames, flow_masks, masks_dilated, size = extrapolation(frames, (args.scale_h, args.scale_w))
-    #     w, h = size
-    # else:
-    #     raise NotImplementedError
-    
-    # for saving the masked frames or video
-    # masked_frame_for_save = []
-    # for i in range(len(frames)):
-    #     mask_ = np.expand_dims(np.array(masks_dilated[i]),2).repeat(3, axis=2)/255.
-    #     img = np.array(frames[i])
-    #     green = np.zeros([h, w, 3]) 
-    #     green[:,:,1] = 255
-    #     alpha = 0.6
-    #     # alpha = 1.0
-    #     fuse_img = (1-alpha)*img + alpha*green
-    #     fuse_img = mask_ * fuse_img + (1-mask_)*img
-    #     masked_frame_for_save.append(fuse_img.astype(np.uint8))
-    # masked_frame_for_save_0 = masked_frame_for_save[0]
-    # frames_inp = [np.array(f).astype(np.uint8) for f in frames]
-    # frames = to_tensors()(frames).unsqueeze(0) * 2 - 1    
-    # flow_masks = to_tensors()(flow_masks).unsqueeze(0)
-    # masks_dilated = to_tensors()(masks_dilated).unsqueeze(0)
-    # frames, flow_masks, masks_dilated = frames.to(device), flow_masks.to(device), masks_dilated.to(device)
-
-    
-    ##############################################
-    # set up RAFT and flow competition model
-    ##############################################
+    # 加载RAFT和flow completion模型
     ckpt_path = load_file_from_url(url=os.path.join(pretrain_model_url, 'raft-things.pth'), 
                                     model_dir='weights', progress=True, file_name=None)
     fix_raft = RAFT_bi(ckpt_path, device)
@@ -610,56 +564,44 @@ if __name__ == '__main__':
     ckpt_path = load_file_from_url(url=os.path.join(pretrain_model_url, 'recurrent_flow_completion.pth'), 
                                     model_dir='weights', progress=True, file_name=None)
     fix_flow_complete = RecurrentFlowCompleteNet(ckpt_path)
-    for p in fix_flow_complete.parameters():
-        p.requires_grad = False
     fix_flow_complete.to(device)
     fix_flow_complete.eval()
 
-
-    ##############################################
-    # set up ProPainter model
-    ##############################################
+    # 加载ProPainter模型
     ckpt_path = load_file_from_url(url=os.path.join(pretrain_model_url, 'ProPainter.pth'), 
                                     model_dir='weights', progress=True, file_name=None)
     model = InpaintGenerator(model_path=ckpt_path).to(device)
     model.eval()
 
+    # 设置视频处理参数
     file_name = args.video
     base_name = os.path.basename(file_name).split('.')[0]
     save_name = "results/{}_inpaint_n_{}.mp4".format(base_name, str(N_in))
     encode_params = ("libx264", "x264opts", "qp=24:bframes=3")
     out_size = (args.width, args.height)
-    video_infer = video_infer_propainter(file_name, save_name, encode_params, model=model, scale=1, in_pix_fmt="rgb24", 
-                                         out_pix_fmt="rgb24", fix_raft=fix_raft, fix_flow_complete=fix_flow_complete, args=args, use_half=use_half, 
-                                         h=args.height, w=args.width, out_size=out_size, frames_len=N_in, mask_dilation=args.mask_dilation, mask=args.mask)
+
+    # 创建video_infer_propainter实例,传入mark_info
+    video_infer = video_infer_propainter(
+        file_name, 
+        save_name, 
+        encode_params, 
+        model=model, 
+        scale=1, 
+        in_pix_fmt="rgb24", 
+        out_pix_fmt="rgb24", 
+        mark_info=mark_info,  # 传入标记信息
+        fix_raft=fix_raft, 
+        fix_flow_complete=fix_flow_complete, 
+        args=args, 
+        use_half=use_half, 
+        h=args.height, 
+        w=args.width, 
+        out_size=out_size, 
+        frames_len=N_in, 
+        mask_dilation=args.mask_dilation
+    )
+
+    # 执行视频处理
     video_infer.infer_multi_frames_propainter(N_in)
 
-    ##############################################
-    # ProPainter inference
-    ##############################################
-
-    # comp_frames = process_video_frames(
-    #     frames=frames,
-    #     frames_inp=frames_inp, 
-    #     masks_dilated=masks_dilated,
-    #     flow_masks=flow_masks,
-    #     model=model,
-    #     fix_raft=fix_raft,
-    #     fix_flow_complete=fix_flow_complete,
-    #     args=args,
-    #     device=device,
-    #     use_half=use_half,
-    #     h=h,
-    #     w=w,
-    #     out_size=out_size
-    # )
-    
-    # 保存视频
-    # masked_frame_for_save = [cv2.resize(f, out_size) for f in masked_frame_for_save]
-    # comp_frames = [cv2.resize(f, out_size) for f in comp_frames]
-    # imageio.mimwrite(os.path.join(save_root, 'masked_in.mp4'), masked_frame_for_save, fps=fps, quality=7)
-    # imageio.mimwrite(os.path.join(save_root, 'inpaint_out.mp4'), comp_frames, fps=fps, quality=7)
-    
-    # print(f'\nAll results are saved in {save_root}')
-    
     torch.cuda.empty_cache()
