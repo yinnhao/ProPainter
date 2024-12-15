@@ -366,74 +366,125 @@ def process_video_frames(frames, frames_inp, masks_dilated, flow_masks, model, f
                 
     return comp_frames
 
+def generate_dynamic_mask(mark_info, frame_size, current_frame_indices):
+    """
+    根据标记信息生成动态mask
+    
+    参数:
+        mark_info: JSON中的标记信息
+        frame_size: 视频帧大小(w,h)
+        current_frame_indices: 当前批次的帧序号列表
+    
+    返回:
+        masks: 生成���mask列表
+    """
+    w, h = frame_size
+    masks = []
+    
+    for frame_idx in current_frame_indices:
+        # 创建空白mask
+        mask = np.zeros((h, w), dtype=np.uint8)
+        
+        # 遍历所有logo标记
+        for logo in mark_info["douyin"]:
+            if logo["start_idx"] <= frame_idx <= logo["end_idx"]:
+                # 在对应位置填充mask
+                mask[logo["y1"]:logo["y2"], logo["x1"]:logo["x2"]] = 255
+                
+        # 处理pianwei标记
+        if "pianwei" in mark_info:
+            if frame_idx >= mark_info["pianwei"]["start_idx"]:
+                # 处理pianwei的mask逻辑
+                pass
+                
+        masks.append(Image.fromarray(mask))
+        
+    return masks
+
+def process_dynamic_masks(masks, flow_mask_dilates=8, mask_dilates=5):
+    """
+    处理动态生成的masks,生成flow_masks和masks_dilated
+    
+    参数:
+        masks: 动态生成的mask列表
+        flow_mask_dilates: 光流mask的膨胀参数
+        mask_dilates: 普通mask的膨胀参数
+    
+    返回:
+        flow_masks: 处理后的光流masks
+        masks_dilated: 处理后的dilated masks
+    """
+    masks_dilated = []
+    flow_masks = []
+    
+    for mask_img in masks:
+        mask_img = np.array(mask_img.convert('L'))
+        
+        # 处理flow mask
+        if flow_mask_dilates > 0:
+            flow_mask_img = scipy.ndimage.binary_dilation(
+                mask_img, 
+                iterations=flow_mask_dilates
+            ).astype(np.uint8)
+        else:
+            flow_mask_img = binary_mask(mask_img).astype(np.uint8)
+        flow_masks.append(Image.fromarray(flow_mask_img * 255))
+        
+        # 处理dilated mask
+        if mask_dilates > 0:
+            mask_img = scipy.ndimage.binary_dilation(
+                mask_img, 
+                iterations=mask_dilates
+            ).astype(np.uint8)
+        else:
+            mask_img = binary_mask(mask_img).astype(np.uint8)
+        masks_dilated.append(Image.fromarray(mask_img * 255))
+    
+    return flow_masks, masks_dilated
+
 class video_infer_propainter(video_infer):
-    def __init__(self, file_name, save_name, encode_params, model=None, scale=1, in_pix_fmt="rgb24", out_pix_fmt="rgb24", **decode_param_dict) -> None:
-        # decode_param_dict = param_dict.get('decode_param_dict', None)
+    def __init__(self, file_name, save_name, encode_params, model=None, scale=1, 
+                 in_pix_fmt="rgb24", out_pix_fmt="rgb24", mark_info=None, **decode_param_dict):
         super().__init__(file_name, save_name, encode_params, model, scale, in_pix_fmt, out_pix_fmt)
         
-    
-        # 获取设备
+        self.mark_info = mark_info
         self.device = get_device()
-        
-        # 加载RAFT模型
-        # raft_ckpt_path = load_file_from_url(url=os.path.join(pretrain_model_url, 'raft-things.pth'), 
-        #                                     model_dir='weights', progress=True, file_name=None)
-        # self.fix_raft = RAFT_bi(raft_ckpt_path, self.device)
         self.fix_raft = decode_param_dict.get('fix_raft', None)
-        
-        # 加载光流补全模型
-        # flow_complete_ckpt_path = load_file_from_url(url=os.path.join(pretrain_model_url, 'recurrent_flow_completion.pth'), 
-        #                                              model_dir='weights', progress=True, file_name=None)
-        # self.fix_flow_complete = RecurrentFlowCompleteNet(flow_complete_ckpt_path)
-        # for p in self.fix_flow_complete.parameters():
-        #     p.requires_grad = False
-        # self.fix_flow_complete.to(self.device)
-        # self.fix_flow_complete.eval()
         self.fix_flow_complete = decode_param_dict.get('fix_flow_complete', None)
-        
-        # 加载ProPainter模型
-        # propainter_ckpt_path = load_file_from_url(url=os.path.join(pretrain_model_url, 'ProPainter.pth'), 
-        #                                           model_dir='weights', progress=True, file_name=None)
-        # self.model = InpaintGenerator(model_path=propainter_ckpt_path).to(self.device)
-        # self.model.eval()
         self.model = model
-        
-        # 其他参数
         self.use_half = decode_param_dict.get('use_half', False)
         self.args = decode_param_dict.get('args', None)
         self.h = decode_param_dict.get('h', 432)
         self.w = decode_param_dict.get('w', 240)
         self.out_size = decode_param_dict.get('out_size', (self.w, self.h))
-
-        # self.flow_masks = decode_param_dict.get('flow_masks', None)
-        # self.masks_dilated = decode_param_dict.get('masks_dilated', None)
-        
-        self.mask = decode_param_dict.get('mask', None)
         self.mask_dilation = decode_param_dict.get('mask_dilation', 4)
-        self.frames_len = decode_param_dict.get('frames_len', None)
         
-        self.flow_masks, self.masks_dilated = read_mask(self.mask, self.frames_len, self.out_size, 
-                                              flow_mask_dilates=self.mask_dilation,
-                                              mask_dilates=self.mask_dilation)
-        
-        flow_mask = self.flow_masks[0]
-        
-        # breakpoint()
-
     def forward(self, batch):
-        
         frames_inp = batch
+        frames = [Image.fromarray(numpy_array.astype('uint8')) for numpy_array in frames_inp]
         
-        frames =  [Image.fromarray(numpy_array.astype('uint8')) for numpy_array in frames_inp]
-        frames = to_tensors()(frames).unsqueeze(0) * 2 - 1  
+        # 获取当前批次的帧序号
+        current_frame_indices = list(range(len(frames)))  # 需要根据实际情况修改
         
-        # 获取设备
-        device = get_device()
+        # 生成动态mask
+        dynamic_masks = generate_dynamic_mask(
+            self.mark_info, 
+            (self.w, self.h),
+            current_frame_indices
+        )
         
-        # 将帧和掩码移动到设备
-        frames = frames.to(device)
-        flow_masks = to_tensors()(self.flow_masks).unsqueeze(0).to(device)
-        masks_dilated = to_tensors()(self.masks_dilated).unsqueeze(0).to(device)
+        # 处理masks
+        flow_masks, masks_dilated = process_dynamic_masks(
+            dynamic_masks,
+            flow_mask_dilates=self.mask_dilation,
+            mask_dilates=self.mask_dilation
+        )
+        
+        # 转换为tensor
+        frames = to_tensors()(frames).unsqueeze(0) * 2 - 1
+        frames = frames.to(self.device)
+        flow_masks = to_tensors()(flow_masks).unsqueeze(0).to(self.device)
+        masks_dilated = to_tensors()(masks_dilated).unsqueeze(0).to(self.device)
         
         # 调用process_video_frames进行推理
         comp_frames = process_video_frames(
@@ -445,17 +496,14 @@ class video_infer_propainter(video_infer):
             fix_raft=self.fix_raft,
             fix_flow_complete=self.fix_flow_complete,
             args=self.args,
-            device=device,
+            device=self.device,
             use_half=self.use_half,
             h=self.h,
             w=self.w,
             out_size=self.out_size
         )
-        return comp_frames
         
-        # 保存或返回推理结果
-        # 这里可以选择保存到文件或返回结果
-        # 例如：return comp_frames
+        return comp_frames
 
 
 if __name__ == '__main__':
