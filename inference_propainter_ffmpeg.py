@@ -454,18 +454,27 @@ class video_infer_propainter(video_infer):
         self.model = model
         self.use_half = decode_param_dict.get('use_half', False)
         self.args = decode_param_dict.get('args', None)
-        self.h = decode_param_dict.get('h', 432)
-        self.w = decode_param_dict.get('w', 240)
-        self.out_size = decode_param_dict.get('out_size', (self.w, self.h))
+        if 'h' in decode_param_dict and decode_param_dict['h']:
+            self.h = decode_param_dict['h']
+        else:
+            self.h = self.height
+        if 'w' in decode_param_dict and decode_param_dict['w']:
+            self.w = decode_param_dict['w']
+        else:
+            self.w = self.width
+        if 'out_size' in decode_param_dict and decode_param_dict['out_size']:
+            self.out_size = decode_param_dict['out_size']
+        else:
+            self.out_size = (self.w, self.h)
         self.mask_dilation = decode_param_dict.get('mask_dilation', 4)
-        
+        self.frame_sums = 0
     def forward(self, batch):
         frames_inp = batch
         frames = [Image.fromarray(numpy_array.astype('uint8')) for numpy_array in frames_inp]
         
         # 获取当前批次的帧序号
-        current_frame_indices = list(range(len(frames)))  # 需要根据实际情况修改
-        
+        current_frame_indices = list(range(self.frame_sums, self.frame_sums + len(frames)))  # 需要根据实际情况修改
+        self.frame_sums += len(frames)
         # 生成动态mask
         dynamic_masks = generate_dynamic_mask(
             self.mark_info, 
@@ -511,17 +520,17 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '-i', '--video', type=str, default='inputs/video_completion/video_0_2s_240x432.mp4')
+        '-i', '--video', type=str, default='/root/paddlejob/workspace/ProPainter/dy_logo_case/videos/video_1.mp4')
     parser.add_argument(
-        '-m', '--mark_json', type=str, help='Path to the JSON file containing mark information')
+        '-m', '--mark_json', type=str, default='/root/paddlejob/workspace/ProPainter/dy_logo_case/videos/video_1.json', help='Path to the JSON file containing mark information')
     parser.add_argument(
         '-o', '--output', type=str, default='results', help='Output folder. Default: results')
     parser.add_argument(
         "--resize_ratio", type=float, default=1.0, help='Resize scale for processing video.')
     parser.add_argument(
-        '--height', type=int, default=432, help='Height of the processing video.')
+        '--height', type=int, default=None, help='Height of the processing video.')
     parser.add_argument(
-        '--width', type=int, default=240, help='Width of the processing video.')
+        '--width', type=int, default=None, help='Width of the processing video.')
     parser.add_argument(
         '--mask_dilation', type=int, default=4, help='Mask dilation for video and flow masking.')
     parser.add_argument(
@@ -578,7 +587,10 @@ if __name__ == '__main__':
     base_name = os.path.basename(file_name).split('.')[0]
     save_name = "results/{}_inpaint_n_{}.mp4".format(base_name, str(N_in))
     encode_params = ("libx264", "x264opts", "qp=24:bframes=3")
-    out_size = (args.width, args.height)
+    out_size = None
+    if args.width and args.height:
+        out_size = (args.width, args.height)
+    
 
     # 创建video_infer_propainter实例,传入mark_info
     video_infer = video_infer_propainter(
