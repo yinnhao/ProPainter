@@ -444,10 +444,10 @@ def process_dynamic_masks(masks, flow_mask_dilates=8, mask_dilates=5):
 
 class video_infer_propainter(video_infer):
     def __init__(self, file_name, save_name, encode_params, model=None, scale=1, 
-                 in_pix_fmt="rgb24", out_pix_fmt="rgb24", mark_info=None, **decode_param_dict):
+                 in_pix_fmt="rgb24", out_pix_fmt="rgb24", mask_info=None, **decode_param_dict):
         super().__init__(file_name, save_name, encode_params, model, scale, in_pix_fmt, out_pix_fmt)
         
-        self.mark_info = mark_info
+        self.mask_info = mask_info
         self.device = get_device()
         self.fix_raft = decode_param_dict.get('fix_raft', None)
         self.fix_flow_complete = decode_param_dict.get('fix_flow_complete', None)
@@ -475,19 +475,28 @@ class video_infer_propainter(video_infer):
         # 获取当前批次的帧序号
         current_frame_indices = list(range(self.frame_sums, self.frame_sums + len(frames)))  # 需要根据实际情况修改
         self.frame_sums += len(frames)
-        # 生成动态mask
-        dynamic_masks = generate_dynamic_mask(
-            self.mark_info, 
-            (self.w, self.h),
-            current_frame_indices
-        )
-        
-        # 处理masks
-        flow_masks, masks_dilated = process_dynamic_masks(
-            dynamic_masks,
-            flow_mask_dilates=self.mask_dilation,
-            mask_dilates=self.mask_dilation
-        )
+        if type(self.mask_info) == dict:
+            # 生成动态mask
+            dynamic_masks = generate_dynamic_mask(
+                self.mask_info, 
+                (self.w, self.h),
+                current_frame_indices
+            )
+            
+            # 处理masks
+            flow_masks, masks_dilated = process_dynamic_masks(
+                dynamic_masks,
+                flow_mask_dilates=self.mask_dilation,
+                mask_dilates=self.mask_dilation
+            )
+        else:
+            flow_masks, masks_dilated = read_mask(
+                self.mask_info, 
+                len(frames), 
+                (self.w, self.h), 
+                flow_mask_dilates=self.mask_dilation,
+                mask_dilates=self.mask_dilation
+            )
         
         # 转换为tensor
         frames = to_tensors()(frames).unsqueeze(0) * 2 - 1
@@ -522,7 +531,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '-i', '--video', type=str, default='/root/paddlejob/workspace/ProPainter/dy_logo_case/videos/video_1.mp4')
     parser.add_argument(
-        '-m', '--mark_json', type=str, default='/root/paddlejob/workspace/ProPainter/dy_logo_case/videos/video_1.json', help='Path to the JSON file containing mark information')
+        '-m', '--mask', type=str, default='/root/paddlejob/workspace/ProPainter/dy_logo_case/videos/video_1.json', help='Path to the JSON file containing mark information')
     parser.add_argument(
         '-o', '--output', type=str, default='results', help='Output folder. Default: results')
     parser.add_argument(
@@ -557,8 +566,11 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     # 读取标记信息JSON文件
-    with open(args.mark_json, 'r') as f:
-        mark_info = json.load(f)
+    if args.mask.endswith('.json'):
+        with open(args.mask, 'r') as f:
+            mask_info = json.load(f)
+    else:
+        mask_info = args.mask
 
     # 设置模型等其他组件
     use_half = True if args.fp16 else False 
@@ -601,7 +613,7 @@ if __name__ == '__main__':
         scale=1, 
         in_pix_fmt="rgb24", 
         out_pix_fmt="rgb24", 
-        mark_info=mark_info,  # 传入标记信息
+        mask_info=mask_info,  # 传入标记信息
         fix_raft=fix_raft, 
         fix_flow_complete=fix_flow_complete, 
         args=args, 
