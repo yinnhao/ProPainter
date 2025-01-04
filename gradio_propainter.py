@@ -150,6 +150,31 @@ def save_mask(mask):
     cv2.imwrite(mask_path, mask)
     return mask_path
 
+def on_image_draw(image_and_mask):
+    """处理涂抹事件，生成mask"""
+    if image_and_mask is None or not isinstance(image_and_mask, dict):
+        return None, None
+    
+    image = image_and_mask.get("image")
+    mask = image_and_mask.get("mask")
+    
+    if image is None:
+        return None, None
+        
+    if mask is None:
+        mask = np.zeros((image.shape[0], image.shape[1], 3), dtype=np.uint8)
+        return mask, None
+    
+    # 将涂抹的mask转换为二值图像
+    mask = (mask > 128).astype(np.uint8) * 255
+    if len(mask.shape) == 3:
+        mask = mask[:,:,0]
+    # 保存mask并返回路径
+    mask_path = save_mask(mask)
+    # 转换为3通道显示
+    mask_display = np.stack([mask, mask, mask], axis=2)
+    return mask_display, mask_path
+
 # 创建Gradio界面
 def create_ui():
     with gr.Blocks(title="ProPainter Video Inpainting") as app:
@@ -160,9 +185,9 @@ def create_ui():
             with gr.Column():
                 video_input = gr.Video(label="Input Video")
                 frame_output = gr.Image(
-                    label="Video Frame",
+                    label="Draw mask on video frame",
                     type="numpy",
-                    interactive=True,
+                    tool="sketch",  # 添加涂抹工具
                     height=500,
                     width=800
                 )
@@ -171,7 +196,6 @@ def create_ui():
                 mask_path = gr.State(None)
                 
                 with gr.Row():
-                    create_mask_btn = gr.Button("Create Mask from Selection")
                     clear_mask_btn = gr.Button("Clear Mask")
                 
                 with gr.Row():
@@ -206,21 +230,8 @@ def create_ui():
             outputs=[frame_output]
         )
         
-        def update_mask(image, evt: gr.SelectData):
-            """根据选择区域创建 mask"""
-            if image is None:
-                return None, None
-            mask = np.zeros(image.shape[:2], dtype=np.uint8)
-            # evt.index 包含了选择区域的坐标 [(x1,y1), (x2,y2)]
-            x1, y1 = evt.index[0]
-            x2, y2 = evt.index[1]
-            cv2.rectangle(mask, (int(x1), int(y1)), (int(x2), int(y2)), 255, -1)
-            mask_path_val = save_mask(mask)
-            return mask, mask_path_val
-
-        # 使用 select 事件
-        frame_output.select(
-            fn=update_mask,
+        frame_output.edit(
+            fn=on_image_draw,
             inputs=[frame_output],
             outputs=[frame_output, mask_path]
         )
