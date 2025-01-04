@@ -9,8 +9,10 @@ def on_image_upload(image_dict):
     image = image_dict.get("image")
     if image is None:
         return None
-        
-    return np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
+    
+    # 返回全黑mask，并确保它是3通道的
+    mask = np.zeros((image.shape[0], image.shape[1], 3), dtype=np.uint8)
+    return mask
 
 def on_image_draw(image_and_mask):
     # 处理涂抹事件
@@ -24,12 +26,14 @@ def on_image_draw(image_and_mask):
         return None
         
     if mask is None:
-        return np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
+        return np.zeros((image.shape[0], image.shape[1], 3), dtype=np.uint8)
     
     # 将涂抹的mask转换为二值图像
     mask = (mask > 128).astype(np.uint8) * 255
     if len(mask.shape) == 3:
         mask = mask[:,:,0]
+    # 转换为3通道
+    mask = np.stack([mask, mask, mask], axis=2)
     return mask
 
 # 创建Gradio界面
