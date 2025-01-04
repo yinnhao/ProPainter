@@ -263,9 +263,9 @@ def create_ui():
 
 if __name__ == "__main__":
     app = create_ui()
+    app.queue()  # 先启用队列
     app.launch(
         server_name="0.0.0.0",
         server_port=8080,
-        debug=True,
-        queue=True  # 启用队列功能
+        debug=True
     )
