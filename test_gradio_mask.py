@@ -1,21 +1,28 @@
 import gradio as gr
-import cv2
 import numpy as np
 
-def create_mask(image_and_mask):
-    # 从gradio的sketch输入中分离图片和mask
-    if image_and_mask is None:
+def on_image_upload(image):
+    # 当上传图片时，返回一个全黑的mask
+    if image is None:
+        return None
+    return np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
+
+def on_image_draw(image_and_mask):
+    # 处理涂抹事件
+    if image_and_mask is None or not isinstance(image_and_mask, dict):
         return None
     
-    image, mask = image_and_mask["image"], image_and_mask["mask"]
+    image = image_and_mask.get("image")
+    mask = image_and_mask.get("mask")
     
-    # 如果没有mask，返回全黑图像
+    if image is None:
+        return None
+        
     if mask is None:
-        return np.zeros(image.shape[:2], dtype=np.uint8)
+        return np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
     
     # 将涂抹的mask转换为二值图像
     mask = (mask > 128).astype(np.uint8) * 255
-    # 确保mask是2D数组
     if len(mask.shape) == 3:
         mask = mask[:,:,0]
     return mask
@@ -25,12 +32,26 @@ with gr.Blocks() as demo:
     gr.Markdown("## 图片涂抹工具")
     
     with gr.Row():
-        input_image = gr.Image(label="上传图片并在图片上涂抹选择区域", tool="sketch", source="upload")
-        output_image = gr.Image(label="生成的Mask")
+        input_image = gr.Image(
+            label="上传图片并在图片上涂抹选择区域",
+            tool="sketch",
+            source="upload",
+            type="numpy"
+        )
+        output_image = gr.Image(
+            label="生成的Mask",
+            type="numpy"
+        )
     
-    # 使用change事件来处理涂抹的结果
-    input_image.change(
-        fn=create_mask,
+    # 分别处理上传和涂抹事件
+    input_image.upload(
+        fn=on_image_upload,
+        inputs=input_image,
+        outputs=output_image
+    )
+    
+    input_image.edit(
+        fn=on_image_draw,
         inputs=input_image,
         outputs=output_image
     )
