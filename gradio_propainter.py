@@ -207,7 +207,7 @@ def clear_mask():
 
 # 创建Gradio界面
 def create_ui():
-    with gr.Blocks(title="ProPainter Video Inpainting") as app:
+    with gr.Blocks(title="Draw Mask and Video Inpainting based on ProPainter") as app:
         gr.Markdown("# ProPainter Video Inpainting")
         gr.Markdown("Upload a video and draw mask to remove unwanted objects")
         
