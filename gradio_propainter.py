@@ -182,6 +182,12 @@ def on_image_draw(image_and_mask):
     mask_display = np.stack([mask, mask, mask], axis=2)
     return mask_display, mask_path
 
+def clear_mask():
+    """清除mask的函数"""
+    # 返回一个空白的黑色图像作为mask预览，和None作为mask路径
+    empty_mask = np.zeros((500, 800, 3), dtype=np.uint8)  # 创建空白图像
+    return empty_mask, None
+
 # 创建Gradio界面
 def create_ui():
     with gr.Blocks(title="ProPainter Video Inpainting") as app:
@@ -252,7 +258,7 @@ def create_ui():
         )
         
         clear_mask_btn.click(
-            fn=lambda: (None, None),
+            fn=clear_mask,  # 使用新的清除函数
             inputs=[],
             outputs=[mask_preview, mask_path]
         )
