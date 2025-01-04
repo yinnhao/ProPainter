@@ -159,10 +159,16 @@ def create_ui():
         with gr.Row():
             with gr.Column():
                 video_input = gr.Video(label="Input Video")
-                frame_output = gr.Image(label="Video Frame", tool="rect-select")
+                frame_output = gr.Image(
+                    label="Video Frame",
+                    type="numpy",
+                    interactive=True,
+                    height=500,
+                    width=800
+                )
                 extract_btn = gr.Button("Extract First Frame")
                 
-                mask_path = gr.State(None)  # 存储生成的mask路径
+                mask_path = gr.State(None)
                 
                 with gr.Row():
                     create_mask_btn = gr.Button("Create Mask from Selection")
@@ -200,16 +206,22 @@ def create_ui():
             outputs=[frame_output]
         )
         
-        def update_mask(image, rect_data):
-            if rect_data is None:
+        def update_mask(image, evt: gr.SelectData):
+            """根据选择区域创建 mask"""
+            if image is None:
                 return None, None
-            mask = create_mask_from_rect(image, rect_data)
+            mask = np.zeros(image.shape[:2], dtype=np.uint8)
+            # evt.index 包含了选择区域的坐标 [(x1,y1), (x2,y2)]
+            x1, y1 = evt.index[0]
+            x2, y2 = evt.index[1]
+            cv2.rectangle(mask, (int(x1), int(y1)), (int(x2), int(y2)), 255, -1)
             mask_path_val = save_mask(mask)
             return mask, mask_path_val
-        
-        create_mask_btn.click(
+
+        # 使用 select 事件
+        frame_output.select(
             fn=update_mask,
-            inputs=[frame_output, frame_output],  # 第二个frame_output自动包含矩形选择数据
+            inputs=[frame_output],
             outputs=[frame_output, mask_path]
         )
         
