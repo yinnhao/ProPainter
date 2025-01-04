@@ -1,10 +1,15 @@
 import gradio as gr
 import numpy as np
 
-def on_image_upload(image):
+def on_image_upload(image_dict):
     # 当上传图片时，返回一个全黑的mask
+    if image_dict is None or not isinstance(image_dict, dict):
+        return None
+    
+    image = image_dict.get("image")
     if image is None:
         return None
+        
     return np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
 
 def on_image_draw(image_and_mask):
