@@ -118,8 +118,8 @@ def process_video(video_path, mask_path, resize_ratio=1.0, mask_dilation=4,
     progress(1.0, desc="Done!")
     return output_path
 
-def extract_frame(video_path):
-    """从视频中提取第一帧"""
+def extract_frame(video_path, frame_number=0):
+    """从视频中提取指定帧"""
     # 创建一个默认的空白图像
     empty_frame = np.zeros((500, 800, 3), dtype=np.uint8)
     
@@ -131,6 +131,14 @@ def extract_frame(video_path):
         
     try:
         cap = cv2.VideoCapture(video_path)
+        # 获取视频总帧数
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        
+        # 确保frame_number在有效范围内
+        frame_number = max(0, min(frame_number, total_frames - 1))
+        
+        # 设置读取位置
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
         ret, frame = cap.read()
         cap.release()
         
@@ -208,10 +216,18 @@ def create_ui():
                 # 设置最大宽度为480，高度设为None以自动计算
                 video_input = gr.Video(label="Input Video", width=480, height=None)
 
-                extract_btn = gr.Button("Extract First Frame")
-                # 首帧显示也使用相同的尺寸
+                with gr.Row():
+                    extract_btn = gr.Button("Extract Frame")
+                    frame_number = gr.Number(
+                        label="Frame Number", 
+                        value=0, 
+                        minimum=0, 
+                        step=1,
+                        precision=0
+                    )
+                
                 first_frame = gr.Image(
-                    label="First Frame (Draw mask here)",
+                    label="Selected Frame (Draw mask here)",
                     type="numpy",
                     tool="sketch",
                     width=480,
@@ -260,8 +276,8 @@ def create_ui():
         # 事件处理
         extract_btn.click(
             fn=extract_frame,
-            inputs=[video_input],
-            outputs=[first_frame]  # 只更新首帧
+            inputs=[video_input, frame_number],
+            outputs=[first_frame]
         )
         
         # mask绘制事件（在首帧上涂抹）
