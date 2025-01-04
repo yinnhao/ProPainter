@@ -191,19 +191,19 @@ def create_ui():
         with gr.Row():
             with gr.Column():
                 video_input = gr.Video(label="Input Video")
-                # 首帧显示
+                # 首帧显示（可涂抹）
                 first_frame = gr.Image(
-                    label="First Frame",
+                    label="First Frame (Draw mask here)",
                     type="numpy",
-                    interactive=False
-                )
-                # 分开的mask绘制区域
-                mask_canvas = gr.Image(
-                    label="Draw mask here",
-                    type="numpy",
-                    tool="sketch",
+                    tool="sketch",  # 在首帧上添加涂抹工具
                     height=500,
                     width=800
+                )
+                # mask显示窗口（只用于显示）
+                mask_preview = gr.Image(
+                    label="Mask Preview",
+                    type="numpy",
+                    interactive=False
                 )
                 extract_btn = gr.Button("Extract First Frame")
                 
@@ -241,20 +241,20 @@ def create_ui():
         extract_btn.click(
             fn=extract_frame,
             inputs=[video_input],
-            outputs=[first_frame, mask_canvas]  # 同时更新两个显示区域
+            outputs=[first_frame]  # 只更新首帧
         )
         
-        # mask绘制事件
-        mask_canvas.edit(
+        # mask绘制事件（在首帧上涂抹）
+        first_frame.edit(
             fn=on_image_draw,
-            inputs=[mask_canvas],
-            outputs=[mask_canvas, mask_path]
+            inputs=[first_frame],
+            outputs=[mask_preview, mask_path]  # 更新mask预览和保存路径
         )
         
         clear_mask_btn.click(
             fn=lambda: (None, None),
             inputs=[],
-            outputs=[mask_canvas, mask_path]
+            outputs=[mask_preview, mask_path]
         )
         
         # 修改process_video的调用
