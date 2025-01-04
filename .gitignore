@@ -130,3 +130,4 @@ results/
 *old*
 *.sh
 # dy_logo_case/
+gradio_mask/*

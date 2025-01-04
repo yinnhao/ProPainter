@@ -161,7 +161,8 @@ def save_mask(mask):
     if mask is None:
         return None
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    mask_path = f"temp_mask_{timestamp}.png"
+    mask_save_folder = "./gradio_mask"
+    mask_path = f"{mask_save_folder}/temp_mask_{timestamp}.png"
     cv2.imwrite(mask_path, mask)
     return mask_path
 
