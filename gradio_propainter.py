@@ -205,22 +205,26 @@ def create_ui():
         
         with gr.Row():
             with gr.Column():
-                video_input = gr.Video(label="Input Video")
+                video_input = gr.Video(label="Input Video", height=360, width=640)
+
+                extract_btn = gr.Button("Extract First Frame")
                 # 首帧显示（可涂抹）
                 first_frame = gr.Image(
                     label="First Frame (Draw mask here)",
                     type="numpy",
                     tool="sketch",  # 在首帧上添加涂抹工具
-                    height=500,
-                    width=800
+                    height=360,
+                    width=640
                 )
                 # mask显示窗口（只用于显示）
                 mask_preview = gr.Image(
                     label="Mask Preview",
                     type="numpy",
-                    interactive=False
+                    interactive=False,
+                    height=360,
+                    width=640
                 )
-                extract_btn = gr.Button("Extract First Frame")
+                
                 
                 mask_path = gr.State(None)
                 
