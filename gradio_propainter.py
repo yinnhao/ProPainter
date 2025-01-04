@@ -120,21 +120,29 @@ def process_video(video_path, mask_path, resize_ratio=1.0, mask_dilation=4,
 
 def extract_frame(video_path):
     """从视频中提取第一帧"""
+    # 创建一个默认的空白图像
+    empty_frame = np.zeros((500, 800, 3), dtype=np.uint8)
+    
     if not video_path:
-        return None, None
+        return empty_frame
         
     if hasattr(video_path, 'name'):
         video_path = video_path.name
         
-    cap = cv2.VideoCapture(video_path)
-    ret, frame = cap.read()
-    cap.release()
-    
-    if ret:
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        # 返回原始帧和用于绘制的空白画布
-        return frame_rgb, frame_rgb.copy()
-    return None, None
+    try:
+        cap = cv2.VideoCapture(video_path)
+        ret, frame = cap.read()
+        cap.release()
+        
+        if ret:
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            return frame_rgb
+        else:
+            return empty_frame
+            
+    except Exception as e:
+        print(f"Error extracting frame: {e}")
+        return empty_frame
 
 def create_mask_from_rect(image, rect_data):
     """根据矩形坐标创建mask"""
@@ -258,7 +266,7 @@ def create_ui():
         )
         
         clear_mask_btn.click(
-            fn=clear_mask,  # 使用新的清除函数
+            fn=lambda: (None, None),
             inputs=[],
             outputs=[mask_preview, mask_path]
         )
