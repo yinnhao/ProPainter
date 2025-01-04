@@ -5,8 +5,6 @@ import tempfile
 import json
 from PIL import Image
 import numpy as np
-import cv2
-from datetime import datetime
 
 from inference_propainter_ffmpeg import (
     video_infer_propainter,
@@ -118,55 +116,16 @@ def process_video(video_path, mask_path, resize_ratio=1.0, mask_dilation=4,
     progress(1.0, desc="Done!")
     return output_path
 
-def extract_frame(video_path):
-    """从视频中提取第一帧"""
-    if not video_path:
-        return None
-    cap = cv2.VideoCapture(video_path)
-    ret, frame = cap.read()
-    cap.release()
-    if ret:
-        return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    return None
-
-def create_mask_from_rect(image, rect_data):
-    """根据矩形坐标创建mask"""
-    if image is None or rect_data is None:
-        return None
-    mask = np.zeros(image.shape[:2], dtype=np.uint8)
-    x1, y1, x2, y2 = map(int, [
-        rect_data['x1'], rect_data['y1'],
-        rect_data['x2'], rect_data['y2']
-    ])
-    cv2.rectangle(mask, (x1, y1), (x2, y2), 255, -1)
-    return mask
-
-def save_mask(mask):
-    """保存mask为图片文件"""
-    if mask is None:
-        return None
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    mask_path = f"temp_mask_{timestamp}.png"
-    cv2.imwrite(mask_path, mask)
-    return mask_path
-
 # 创建Gradio界面
 def create_ui():
     with gr.Blocks(title="ProPainter Video Inpainting") as app:
         gr.Markdown("# ProPainter Video Inpainting")
-        gr.Markdown("Upload a video and draw mask to remove unwanted objects")
+        gr.Markdown("Upload a video and mask to remove unwanted objects")
         
         with gr.Row():
             with gr.Column():
                 video_input = gr.Video(label="Input Video")
-                frame_output = gr.Image(label="Video Frame", tool="rect-select")
-                extract_btn = gr.Button("Extract First Frame")
-                
-                mask_path = gr.State(None)  # 存储生成的mask路径
-                
-                with gr.Row():
-                    create_mask_btn = gr.Button("Create Mask from Selection")
-                    clear_mask_btn = gr.Button("Clear Mask")
+                mask_input = gr.File(label="Mask (JSON or Image)")
                 
                 with gr.Row():
                     resize_ratio = gr.Slider(minimum=0.1, maximum=2.0, value=1.0, 
@@ -192,39 +151,12 @@ def create_ui():
             
             with gr.Column():
                 video_output = gr.Video(label="Output Video")
-        
-        # 事件处理
-        extract_btn.click(
-            fn=extract_frame,
-            inputs=[video_input],
-            outputs=[frame_output]
-        )
-        
-        def update_mask(image, rect_data):
-            if rect_data is None:
-                return None, None
-            mask = create_mask_from_rect(image, rect_data)
-            mask_path_val = save_mask(mask)
-            return mask, mask_path_val
-        
-        create_mask_btn.click(
-            fn=update_mask,
-            inputs=[frame_output, frame_output],  # 第二个frame_output自动包含矩形选择数据
-            outputs=[frame_output, mask_path]
-        )
-        
-        clear_mask_btn.click(
-            fn=lambda: (None, None),
-            inputs=[],
-            outputs=[frame_output, mask_path]
-        )
-        
-        # 修改process_video的调用
+                
         process_btn.click(
             fn=process_video,
             inputs=[
                 video_input,
-                mask_path,  # 使用生成的mask路径
+                mask_input,
                 resize_ratio,
                 mask_dilation,
                 ref_stride,
