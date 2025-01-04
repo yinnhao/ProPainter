@@ -121,13 +121,20 @@ def process_video(video_path, mask_path, resize_ratio=1.0, mask_dilation=4,
 def extract_frame(video_path):
     """从视频中提取第一帧"""
     if not video_path:
-        return None
+        return None, None
+        
+    if hasattr(video_path, 'name'):
+        video_path = video_path.name
+        
     cap = cv2.VideoCapture(video_path)
     ret, frame = cap.read()
     cap.release()
+    
     if ret:
-        return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    return None
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        # 返回原始帧和用于绘制的空白画布
+        return frame_rgb, frame_rgb.copy()
+    return None, None
 
 def create_mask_from_rect(image, rect_data):
     """根据矩形坐标创建mask"""
@@ -184,10 +191,17 @@ def create_ui():
         with gr.Row():
             with gr.Column():
                 video_input = gr.Video(label="Input Video")
-                frame_output = gr.Image(
-                    label="Draw mask on video frame",
+                # 首帧显示
+                first_frame = gr.Image(
+                    label="First Frame",
                     type="numpy",
-                    tool="sketch",  # 添加涂抹工具
+                    interactive=False
+                )
+                # 分开的mask绘制区域
+                mask_canvas = gr.Image(
+                    label="Draw mask here",
+                    type="numpy",
+                    tool="sketch",
                     height=500,
                     width=800
                 )
@@ -227,19 +241,20 @@ def create_ui():
         extract_btn.click(
             fn=extract_frame,
             inputs=[video_input],
-            outputs=[frame_output]
+            outputs=[first_frame, mask_canvas]  # 同时更新两个显示区域
         )
         
-        frame_output.edit(
+        # mask绘制事件
+        mask_canvas.edit(
             fn=on_image_draw,
-            inputs=[frame_output],
-            outputs=[frame_output, mask_path]
+            inputs=[mask_canvas],
+            outputs=[mask_canvas, mask_path]
         )
         
         clear_mask_btn.click(
             fn=lambda: (None, None),
             inputs=[],
-            outputs=[frame_output, mask_path]
+            outputs=[mask_canvas, mask_path]
         )
         
         # 修改process_video的调用
